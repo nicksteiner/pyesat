@@ -1,3 +1,8 @@
 {
-    "ros.distro": "noetic"
+    "ros.distro": "noetic",
+    "python.testing.pytestArgs": [
+        "test"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }

@@ -1,18 +1,21 @@
 #!/bin/python
 
-
+import os
+import sys
 import json
 import configparser
 import pathlib
 import datetime
-from subprocess import Popen
 from getpass import getpass
-import os
-import getpass
+
 import requests
 
+sys.path.append('..')  # NOTE: for debugging, should change when installed
 
-config_file = pathlib.Path('.') / 'pyesat' / 'config.ini' 
+import pyesat.pyesat
+
+config_file = pathlib.Path(pyesat.pyesat.__file__).parent / 'config.ini' 
+
 config_info_str = """Please write a file config.ini in the /pyesat directory with the format:
 
         [urs.earthdata.nasa.gov]
@@ -44,15 +47,6 @@ def write_config_fromPrompt():
         
         write_config(config_state)
 
-def get_edl_creds():
-    config_parser = configparser.ConfigParser()
-    config_ = config_parser.read_file(open(config_file, 'r').read())
-    try:
-        assert remoteHostName in config_
-    except:
-        raise(ValueError('Not Earth Data credentials not found in .netrc file. See instructions here: https://nasa-openscapes.github.io/earthdata-cloud-cookbook/get-started/earthdata-login.html'))
-
-    return config_[remoteHostName]
     
 def get_config(config_parser):
     return config_parser.read_file(open(config_file, 'r'))
