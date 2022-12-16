@@ -3,6 +3,22 @@ import sys
 
 import pyesat.earthdata
 
+
+def test_search_cmr():
+    # Import the search_cmr function
+    from pyesat.earthdata import search_cmr
+
+    # Search for collections with the keyword "landsat"
+    results = search_cmr("keyword:landsat")
+
+    # Make sure the results are not empty
+    assert results["feed"]["entry_count"] > 0
+
+    # Make sure each collection has a title and ID
+    for entry in results["feed"]["entry"]:
+        assert "title" in entry
+        assert "id" in entry
+
 def test_earthdata_login(): 
     # Tests the Earthdata.login() method to ensure that it correctly logs the user in to the Earthdata Cloud.
     pyesat.earthdata.

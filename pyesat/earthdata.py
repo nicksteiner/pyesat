@@ -4,12 +4,12 @@ import json
 import pprint
 import netrc
 from datetime import datetime
+import requests
 
 from requests import Session
 
 # Generate a NASA Earthdata Login Token
 
-_ed
 
 _edl_token_urls = {
     'generate_token':'https://urs.earthdata.nasa.gov/api/users/token',
@@ -63,21 +63,99 @@ def get_edl_token():
         print(f'Your EDL token information can be found here: {os.path.abspath("../../../.hidden_dir/edl_token.json")}')
 
 
-# Search client
+
+
 
 class CMRClient:
-    CMR_OPS = 'https://cmr.earthdata.nasa.gov/search'
-    def __init__(self, api_key: str):
-        self.url = f'{CRM_OPS}'
-        self.api_key = api_key
+    """
+    A Python API for interacting with the NASA Common Metadata Repository (CMR).
 
-    def search(self, type_='collections'):
-        self.url += '/{type_}'
+    Attributes:
+    - base_url (str): The base URL for the CMR API.
+    """
 
-
-class CMRResult:
     def __init__(self):
-        return
+        self.base_url = "https://cmr.earthdata.nasa.gov/search"
+
+    def search_granules(self, params):
+        """
+        Search the CMR for granules.
+
+        Parameters:
+        - params (dict): A dictionary of query parameters to use in the search.
+          For a full list of available parameters and their meanings, see the
+          CMR API documentation:
+          https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html#
+
+        Returns:
+        - dict: A dictionary of search results, in the same format as the JSON
+          response returned by the CMR API.
+        """
+        url_ = self.base_url + '/granules.json'
+        response = requests.get(self.base_url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+
+    def get_metadata(self, id):
+        """
+        Get a single collection or granule from the CMR.
+
+        Parameters:
+        - id (str): The unique identifier for the collection to retrieve.
+
+        Returns:
+        - dict: A dictionary of collection metadata, in the same format as the
+          JSON response returned by the CMR API.
+        """
+        url = f"{self.base_url}/{id}"
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+        
+    def parse_granule_metadata(self, granule_json):
+        """
+        Parse the metadata for a single granule.
+
+        Parameters:
+        - granule (dict): A dictionary of granule metadata, as returned by the
+          `get_granule()` method.
+
+        Returns:
+        - dict: A dictionary of parsed granule metadata, with specific metadata
+          fields extracted and formatted for easier access.
+        """
+        metadata = {}
+
+        # Extract the granule ID
+        metadata["id"] = granule["id"]
+
+        # Extract the granule title
+        metadata["title"] = granule["title"]
+
+        # Extract the granule summary
+        metadata["summary"] = granule["summary"]
+
+        # Extract the granule spatial bounds
+        spatial = granule["geo"]["spatial"]
+        metadata["spatial"] = {
+            "north": spatial["north"],
+            "south": spatial["south"],
+            "east": spatial["east"],
+            "west": spatial["west"],
+        }
+
+        # Extract the granule temporal bounds
+        temporal = granule["time"]["start"]
+        metadata["temporal"] = {
+            "start": temporal,
+            "end": granule["time"]["end"],
+        }
+
+        # Extract the granule data format
+        metadata["format"] = granule["data_format"]
+
+        return metadata
 
 class CmrSearch:
     def __init__(self, api_key: str):
