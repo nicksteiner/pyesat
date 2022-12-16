@@ -11,61 +11,6 @@ from requests import Session
 # Generate a NASA Earthdata Login Token
 
 
-_edl_token_urls = {
-    'generate_token':'https://urs.earthdata.nasa.gov/api/users/token',
-    'list_token':'https://urs.earthdata.nasa.gov/api/users/tokens',
-    'revoke_token': 'https://urs.earthdata.nasa.gov/api/users/revoke_token'
-}
-
-
-def get_edl_creds():
-    nc = netrc.netrc()
-    remoteHostName = "urs.earthdata.nasa.gov"
-    try:
-        assert remoteHostName in nc.authenticators
-    except:
-        raise(ValueError('Not Earth Data credentials not found in .netrc file. See instructions here: https://nasa-openscapes.github.io/earthdata-cloud-cookbook/get-started/earthdata-login.html'))
-
-    edl_user, edl_pass = nc.authenticators(remoteHostName)
-    return {'username':edl_user, 'password':edl_pass}
-
-
-def get_edl_token():
-        auth = get_edl_creds
-        tokens_ = requests.get(_edl_token_urls['list_token'], auth=auth).json()
-        if not token_:
-            # no tokens
-        else: 
-            # get most recent
-
-
-
-        if len(list_tokens := requests.get(edl_token_urls['list_token'], auth=(get_edl_creds()['username'], get_edl_creds()['password'])).json()) < 1:
-        #print('No tokens available. Generating new Earthdata Login Token ...')
-        generate_token_url = "https://urs.earthdata.nasa.gov/api/users/token"
-        generate_token_req = requests.post(edl_token_urls['generate_token'], auth=(get_edl_creds()['username'], get_edl_creds()['password']))
-        token = generate_token_req.json()
-        with open("../../../.hidden_dir/edl_token.json", "w") as outfile:
-            json.dump(token, outfile)
-        print(f'Your EDL token information can be found here: {os.path.abspath("../../../.hidden_dir/edl_token.json")}')
-    elif datetime.strptime(list_tokens[0]['expiration_date'], "%m/%d/%Y") < datetime.now():
-        #print('Available token is expired. Generating a new Earthdata Login Token ...')
-        revoke_token = requests.post(f"{edl_token_urls['revoke_token']}?token={list_tokens[0]}", auth=(get_edl_creds()['username'], get_edl_creds()['password']))
-        generate_token_req = requests.post(edl_token_urls['generate_token'], auth=(get_edl_creds()['username'], get_edl_creds()['password']))
-        token = generate_token_req.json()
-        with open("../../../.hidden_dir/edl_token.json", "w") as outfile:
-            json.dump(token, outfile)
-        print(f'Your EDL token information can be found here: {os.path.abspath("../../../.hidden_dir/edl_token.json")}')
-    else:
-        #print('Earthdata Login Token Found ...')
-        with open("../../../.hidden_dir/edl_token.json", "w") as outfile:
-            json.dump(list_tokens[0], outfile)
-        print(f'Your EDL token information can be found here: {os.path.abspath("../../../.hidden_dir/edl_token.json")}')
-
-
-
-
-
 class CMRClient:
     """
     A Python API for interacting with the NASA Common Metadata Repository (CMR).
