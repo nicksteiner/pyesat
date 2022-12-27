@@ -40,7 +40,7 @@ def write_config_fromPrompt():
         config_state = configparser.ConfigParser()
 
         username = input("Enter NASA Earthdata username Username ")
-        password = getpass.getpass("Enter NASA Earthdata username Password: ")
+        password = getpass("Enter NASA Earthdata username Password: ")
         config_state[remoteHostName] = {}
         config_state[remoteHostName]['username'] = username
         config_state[remoteHostName]['password'] = password
