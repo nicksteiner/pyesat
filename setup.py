@@ -8,6 +8,7 @@ setup(
     url='https://github.com/nicksteiner/pyesat',
     description='A Python library for accessing satellite data',
     packages=['pyesat'],
+    scripts=['bin/write_earthdata_credentials.py'],
     install_requires=[
         'requests>=2.24.0',
         'lxml>=4.6.1'
