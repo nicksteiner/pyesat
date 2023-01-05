@@ -14,7 +14,7 @@ sys.path.append('..')  # NOTE: for debugging, should change when installed
 
 import pyesat
 
-config_file = pathlib.Path(pyesat.pyesat.__file__).parent / 'config.ini' 
+config_file = pathlib.Path(pyesat.__file__).parent / 'config.ini'
 
 config_info_str = """Please write a file config.ini in the /pyesat directory with the format:
 
