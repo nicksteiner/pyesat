@@ -12,7 +12,7 @@ import requests
 
 sys.path.append('..')  # NOTE: for debugging, should change when installed
 
-import pyesat.pyesat
+import pyesat
 
 config_file = pathlib.Path(pyesat.pyesat.__file__).parent / 'config.ini' 
 
