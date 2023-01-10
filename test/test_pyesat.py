@@ -17,25 +17,18 @@ def test_cmr_granules():
     import pyesat.earthdata
     client = pyesat.earthdata.CMRClient()
     granules = client.search_granules(_test_data['bbox'], _test_data['date_range'])
-    # Make sure each collection has a title and ID
+    # Make sure each Granlue class has a title and ID property
     for entry in granules:
-        assert "title" in entry
-        assert "id" in entry
-    # print all keys and values from the entry in a granule
-    print('/n/n/n')
-    for entry in granules:
-        for k, v in entry.items():
-            pprint.pprint(f'{k}: {v}')
-
+        assert "title" in entry.__dict__
+        assert "id" in entry.__dict__
 
 def test_get_s3():
     import pyesat.earthdata
     client = pyesat.earthdata.CMRClient()
     granules = client.search_granules(_test_data['bbox'], _test_data['date_range'])
     # Make sure each collection has a title and ID
-    for entry in granules:
-        assert "title" in entry
-        assert "id" in entry
+    for granule in granules:
+        print(granule.s3)
 
 
 

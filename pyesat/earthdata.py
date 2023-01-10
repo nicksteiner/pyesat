@@ -118,11 +118,12 @@ class CMRClient:
         for granule in granules:
             if verbose:
                 print(f'{granule["data_center"]} | {granule["dataset_id"]} | {granule["id"]}')
-            https_urls = [l['href'] for l in granule['links'] if 'https' in l['href'] and '.tif' in l['href']]
-            s3_urls = [l['href'] for l in granule['links'] if 's3' in l['href'] and '.tif' in l['href']]
-            granule['s3'] = s3_urls
-            granule['https'] = https_urls
-            granules_.append(dict(granule))
+            #https_urls = [l['href'] for l in granule['links'] if 'https' in l['href'] and '.tif' in l['href']]
+            #s3_urls = [l['href'] for l in granule['links'] if 's3' in l['href'] and '.tif' in l['href']]
+            #granule['s3'] = s3_urls
+            #granule['https'] = https_urls
+
+            granules_.append(Granule(granule))
 
         return granules_
 class Granule:
@@ -167,15 +168,16 @@ class Granule:
         self.title = granule['title']
         self.updated = granule['updated']
         self.granule_size = granule['granule_size']
-        self.orbit_calculated_spatial_domains = granule['orbit_calculated_spatial_domains']
-        self.start_orbit_number = granule['orbit_calculated_spatial_domains'][0]['start_orbit_number']
-        self.stop_orbit_number = granule['orbit_calculated_spatial_domains'][0]['stop_orbit_number']
-        self.boxes = granule['boxes']
+        self.orbit_calculated_spatial_domains = granule['orbit_calculated_spatial_domains'][0]
+        self.start_orbit_number = int(self.orbit_calculated_spatial_domains['start_orbit_number'])
+        self.stop_orbit_number = int(self.orbit_calculated_spatial_domains['stop_orbit_number'])
+        self.boxes = granule['boxes'][0]
         "boxes: ['34.207188 -120.828926 35.223133 -119.598442']"
         _bounds = [float(i) for i in self.boxes.split(' ')]
         self.bounds = [_bounds[1], _bounds[0], _bounds[3], _bounds[2]]
-        self.s3 = granule['s3']
-        self.https = granule['https']
+        self.links = Links(granule['links'])
+        self.s3 = self.links.get_s3()
+        self.https = self.links.get_https()
         if verbose:
             print(f'Granule: {self.id}: {self.dataset_id}: {self.time_start} - {self.time_end}')
 
@@ -205,7 +207,19 @@ class Granule:
             else:
                 print(f"{file_name} already exists in {out_dir}")
 
+class Links:
+    # class to handle links in the granule json object
+    def __init__(self, links):
+        self.links = links
 
+    def get_s3(self):
+        return [l['href'] for l in self.links if 's3' in l['href'] and '.tif' in l['href']]
+
+    def get_https(self):
+        return [l['href'] for l in self.links if 'https' in l['href'] and '.tif' in l['href']]
+
+    def __repr__(self):
+        return f'{self.links}'
 class CmrSearch:
     def __init__(self, api_key: str):
         self.client = CMRClient(api_key=api_key)
