@@ -1,5 +1,6 @@
 import os
 import sys
+import pprint
 
 _test_data = {}
 _test_data['date_range'] = '2022-12-01T00:00:00Z,2022-12-07T23:59:59Z'
@@ -20,6 +21,12 @@ def test_cmr_granules():
     for entry in granules:
         assert "title" in entry
         assert "id" in entry
+    # print all keys and values from the entry in a granule
+    print('/n/n/n')
+    for entry in granules:
+        for k, v in entry.items():
+            pprint.pprint(f'{k}: {v}')
+
 
 def test_get_s3():
     import pyesat.earthdata

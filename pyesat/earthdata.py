@@ -3,7 +3,8 @@ import sys
 import json
 import pprint
 from typing import List, Dict
-import pathlib
+from pathlib import Path
+import urllib
 import netrc
 from datetime import datetime
 import requests
@@ -12,11 +13,12 @@ from requests import Session
 
 # Generate a NASA Earthdata Login Token
 
-config_file = pathlib.Path(__file__).parent / 'config.ini' # same directory as the the source
+config_file = Path(__file__).parent / 'config.ini'  # same directory as the the source
 
-remote_hostname = "urs.earthdata.nasa.gov" # Earthdata URL to call for authentication
- 
-def get_credentials():
+remote_hostname = "urs.earthdata.nasa.gov"  # Earthdata URL to call for authentication
+
+
+def get_credentials() -> Dict:
     config_parser = configparser.ConfigParser()
     try:
         config_parser.read_file(open(config_file, 'r'))
@@ -39,36 +41,35 @@ class CMRClient:
         self.auth = get_credentials()
         self.provider = provider
         self.project = project
-        self.headers = { 
-            'Authorization': f'Bearer {self.auth["token"]}', 
+        self.headers = {
+            'Authorization': f'Bearer {self.auth["token"]}',
             'Accept': 'application/json'
-            }
+        }
 
     def get_collections(self, verbose=True):
         token = self.auth['token']
         url = f'{self.base_url}/{"collections"}'
         response = requests.get(url,
-                        params={
-                            'cloud_hosted': 'True',
-                            'has_granules': 'True',
-                            'provider': self.provider,
-                            'project': self.project,
-                            'page_size': 100
-                        },
-                        headers=self.headers
-                       )
+                                params={
+                                    'cloud_hosted': 'True',
+                                    'has_granules': 'True',
+                                    'provider': self.provider,
+                                    'project': self.project,
+                                    'page_size': 100
+                                },
+                                headers=self.headers
+                                )
         try:
             assert response.status_code == 200
-        except: 
+        except:
             error_ = json.loads(response.text)
             raise Exception(f"{error_['error']}:{error_['error_description']}")
-        
+
         print(f"CRM-HITS: {response.headers['cmr-hits']}")
         content = response.json()
         collections = content['feed']['entry']
         for collection in collections:
             print(f'{collection["archive_center"]} | {collection["dataset_id"]} | {collection["id"]}')
-
 
     def search_granules(self, bbox, date_range, collection_id='C2076090826-LPCLOUD', verbose=True):
         """
@@ -93,22 +94,22 @@ class CMRClient:
         """
         url = f'{self.base_url}/{"granules"}'
         token = self.auth['token']
-        params={
-                            'concept_id': collection_id,
-                            'temporal': date_range,
-                            'bounding_box': bbox,
-                            'page_size': 2000
-                            }
+        params = {
+            'concept_id': collection_id,
+            'temporal': date_range,
+            'bounding_box': bbox,
+            'page_size': 2000
+        }
         response = requests.get(url, params=params, headers=self.headers)
         try:
             assert response.status_code == 200
-        except: 
+        except:
             error_ = json.loads(response.text)
             raise Exception(f"{error_['error']}:{error_['error_description']}")
-        
+
         if verbose:
             print(f"{self.project}|{self.provider}|{collection_id} granules: {response.headers['CMR-Hits']}")
-        
+
         response.raise_for_status()
 
         granules = response.json()['feed']['entry']
@@ -118,56 +119,92 @@ class CMRClient:
             if verbose:
                 print(f'{granule["data_center"]} | {granule["dataset_id"]} | {granule["id"]}')
             https_urls = [l['href'] for l in granule['links'] if 'https' in l['href'] and '.tif' in l['href']]
-            s3_urls =    [l['href'] for l in granule['links'] if 's3' in l['href'] and '.tif' in l['href']]
+            s3_urls = [l['href'] for l in granule['links'] if 's3' in l['href'] and '.tif' in l['href']]
             granule['s3'] = s3_urls
             granule['https'] = https_urls
             granules_.append(dict(granule))
 
         return granules_
+class Granule:
+    # Class to contain information from the CRM entry json object.
 
-    def parse_granule_metadata(self, granule_json):
-        """
-        Parse the metadata for a single granule.
+    """
+    write function to put these fields into the Granule object parameters with the same names
+    'producer_granule_id: ECOv002_L2T_LSTE_24972_017_10SGD_20221201T044006_0710_01'
+    'time_start: 2022-12-01T04:40:06.140Z'
+    'updated: 2022-12-10T16:07:24.091Z'
+    ("orbit_calculated_spatial_domains: [{'start_orbit_number': '24972', "
+     "'stop_orbit_number': '24972'}]")
+    ('dataset_id: ECOSTRESS Tiled Land Surface Temperature and Emissivity '
+     'Instantaneous L2 Global 70 m V002')
+    'data_center: LPCLOUD'
+    'title: ECOv002_L2T_LSTE_24972_017_10SGD_20221201T044006_0710_01'
+    'coordinate_system: GEODETIC'
+    'day_night_flag: NIGHT'
+    'time_end: 2022-12-01T04:40:58.110Z'
+    'id: G2562621237-LPCLOUD'
+    'original_format: ECHO10'
+    'granule_size: 3.79172'
+    'browse_flag: True'
+    'collection_concept_id: C2076090826-LPCLOUD'
+    'online_access_flag: True'
+    """
+    _dt_parser = '%Y-%m-%dT%H:%M:%S.%fZ'
 
-        Parameters:
-        - granule (dict): A dictionary of granule metadata, as returned by the
-          `get_granule()` method.
+    def __init__(self, granule, verbose=True):
+        self.id = granule['id']
+        self.dataset_id = granule['dataset_id']
+        self.data_center = granule['data_center']
+        self.time_start = datetime.strptime(granule['time_start'], self._dt_parser)
+        self.time_end = datetime.strptime(granule['time_end'], self._dt_parser)
+        self.collection_concept_id = granule['collection_concept_id']
+        self.producer_granule_id = granule['producer_granule_id']
+        self.browse_flag = bool(granule['browse_flag'])
+        self.online_access_flag = bool(granule['online_access_flag'])
+        self.original_format = granule['original_format']
+        self.coordinate_system = granule['coordinate_system']
+        self.day_night_flag = granule['day_night_flag']
+        self.title = granule['title']
+        self.updated = granule['updated']
+        self.granule_size = granule['granule_size']
+        self.orbit_calculated_spatial_domains = granule['orbit_calculated_spatial_domains']
+        self.start_orbit_number = granule['orbit_calculated_spatial_domains'][0]['start_orbit_number']
+        self.stop_orbit_number = granule['orbit_calculated_spatial_domains'][0]['stop_orbit_number']
+        self.boxes = granule['boxes']
+        "boxes: ['34.207188 -120.828926 35.223133 -119.598442']"
+        _bounds = [float(i) for i in self.boxes.split(' ')]
+        self.bounds = [_bounds[1], _bounds[0], _bounds[3], _bounds[2]]
+        self.s3 = granule['s3']
+        self.https = granule['https']
+        if verbose:
+            print(f'Granule: {self.id}: {self.dataset_id}: {self.time_start} - {self.time_end}')
 
-        Returns:
-        - dict: A dictionary of parsed granule metadata, with specific metadata
-          fields extracted and formatted for easier access.
-        """
-        metadata = {}
+    def __repr__(self):
+        return f'{self.data_center} | {self.dataset_id} | {self.id}'
 
-        # Extract the granule ID
-        metadata["id"] = granule["id"]
+    def get_s3(self):
+        return self.s3
 
-        # Extract the granule title
-        metadata["title"] = granule["title"]
+    def get_https(self):
+        return self.https
 
-        # Extract the granule summary
-        metadata["summary"] = granule["summary"]
+    def get_file_name(self):
+        return self.file_name
 
-        # Extract the granule spatial bounds
-        spatial = granule["geo"]["spatial"]
-        metadata["spatial"] = {
-            "north": spatial["north"],
-            "south": spatial["south"],
-            "east": spatial["east"],
-            "west": spatial["west"],
-        }
+    def get_json(self):
+        return self.json
 
-        # Extract the granule temporal bounds
-        temporal = granule["time"]["start"]
-        metadata["temporal"] = {
-            "start": temporal,
-            "end": granule["time"]["end"],
-        }
+    def download(self, out_dir):
+        # Download the file to the specified directory from self.s3 list using pathlib library
+        for url in self.s3:
+            file_name = url.split('/')[-1]
+            out_file = Path(out_dir) / file_name
+            if not out_file.exists():
+                print(f'Downloading {file_name} to {out_dir}')
+                urllib.request.urlretrieve(url, out_file)
+            else:
+                print(f"{file_name} already exists in {out_dir}")
 
-        # Extract the granule data format
-        metadata["format"] = granule["data_format"]
-
-        return metadata
 
 class CmrSearch:
     def __init__(self, api_key: str):
@@ -212,10 +249,10 @@ class Earthdata:
         # Set up the login request
         login_url = 'https://urs.earthdata.nasa.gov/login'
         login_data = {'username': self.username, 'password': self.password}
-        
+
         # Send the login request
         response = self.session.post(login_url, data=login_data)
-        
+
         # Check the response status code
         if response.status_code != 200:
             raise Exception('Failed to log in: {}'.format(response.status_code))
@@ -228,25 +265,25 @@ class Earthdata:
             'temporal': start_date + 'Z' + end_date + 'Z',
             'format': 'json'
         }
-        
+
         # Send the search request
         response = self.session.get(search_url, params=search_params)
-        
+
         # Check the response status code
         if response.status_code != 200:
             raise Exception('Failed to search: {}'.format(response.status_code))
-        
+
         # Parse and return the search results
         return response.json()['feed']['entry']
 
     def download(self, url, output_dir):
         # Send the download request
         response = self.session.get(url)
-        
+
         # Check the response status code
         if response.status_code != 200:
             raise Exception('Failed to download: {}'.format(response.status_code))
-        
+
         # Save the image to the output directory
         filename = url.split('/')[-1]
         with open(os.path.join(output_dir, filename), 'wb') as f:
