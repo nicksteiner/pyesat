@@ -2,6 +2,8 @@ import os
 import sys
 import pprint
 
+import pyesat.earthdata
+
 _test_data = {}
 _test_data['date_range'] = '2022-12-01T00:00:00Z,2022-12-07T23:59:59Z'
 _test_data['bbox'] = '-120.45264628,34.51050622,-120.40432448,34.53239876'
@@ -29,6 +31,13 @@ def test_get_s3():
     # Make sure each collection has a title and ID
     for granule in granules:
         print(granule.s3)
+
+def test_session():
+    # Tests the Session class to ensure that it correctly stores the user's credentials and session information.
+    import pyesat.earthdata
+    session = pyesat.earthdata.DaacReadSession()
+
+
 
 def test_get_xarray():
     # Tests the Granule.get_xarray() function to ensure that it correctly converts an image to an xarray object.

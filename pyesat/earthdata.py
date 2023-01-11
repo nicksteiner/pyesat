@@ -14,47 +14,58 @@ from datetime import datetime
 import requests
 import xarray as xr
 import rasterio as rio
-import configparser
 from requests import Session
 
+from . import credentials
 # Generate a NASA Earthdata Login Token
 
-config_file = Path(__file__).parent / 'config.ini'  # same directory as the the source
-remote_hostname = "urs.earthdata.nasa.gov"  # Earthdata URL to call for authentication
 
-
-def get_credentials() -> Dict:
-    config_parser = configparser.ConfigParser()
-    try:
-        config_parser.read_file(open(config_file, 'r'))
-        assert remote_hostname in config_parser
-    except:
-        raise Exception('NASA Earthdata credentials not found, please run: write_earthdata_credentials.py')
-    return dict(config_parser[remote_hostname])
-
-def get_temp_credentials(provider):
-    """Generate temporary NASA Earthdata credentials for a given provider"""
-    s3_cred_endpoint = {
-        'podaac': 'https://archive.podaac.earthdata.nasa.gov/s3credentials',
-        'gesdisc': 'https://data.gesdisc.earthdata.nasa.gov/s3credentials',
-        'lpdaac': 'https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials',
-        'ornldaac': 'https://data.ornldaac.earthdata.nasa.gov/s3credentials',
-        'ghrcdaac': 'https://data.ghrc.earthdata.nasa.gov/s3credentials'
-    }
-    return requests.get(s3_cred_endpoint[provider], auth=**get_credentials()).json()
-def set_rio_environment():
-    temp_creds_req = get_temp_credentials('lpdaac')
-    session = boto3.Session(aws_access_key_id=temp_creds_req['accessKeyId'],
-                            aws_secret_access_key=temp_creds_req['secretAccessKey'],
-                            aws_session_token=temp_creds_req['sessionToken'],
+def set_rio_environment(daac: str='lpdaac') -> bool:
+    temp_creds_req = credentials.get_daac_credentials(daac)
+    session = boto3.Session(aws_access_key_id=temp_creds_req['access_key'],
+                            aws_secret_access_key=temp_creds_req['secret_key'],
+                            aws_session_token=temp_creds_req['session_token'],
                             region_name='us-west-2')
+    cookie_path = Path.home() / 'cookies.txt'
     rio_env = rio.Env(AWSSession(session),
                       GDAL_DISABLE_READDIR_ON_OPEN='TRUE',
-                      GDAL_HTTP_COOKIEFILE=os.path.expanduser('~/cookies.txt'),
-                      GDAL_HTTP_COOKIEJAR=os.path.expanduser('~/cookies.txt'))
+                      GDAL_HTTP_COOKIEFILE=cookie_path.as_posix(),
+                      GDAL_HTTP_COOKIEJAR=cookie_path.as_posix())
     rio_env.__enter__()
     #return rio_env
+    return True
 
+class DaacReadSession:
+    # class to contain the session for a given DAAC using credentials
+    def __init__(self, daac: str='lpdaac'):
+        self.daac = daac
+        self.temp_creds_req = credentials.get_daac_credentials(self.daac)
+        self.session = self._get_session()
+        exp_date = self.temp_creds_req['expiration_date']
+        self.expiration_date = datetime.strptime(exp_date, "%Y-%m-%d %H:%M:%S%z")
+
+    def __call__(self, *args, **kwargs):
+        # reset the session if it is expired
+        if self.is_expired():
+            self.session = self._get_session()
+
+    def is_expired(self) -> bool:
+        # check if the session is expired
+        return self.expiration_date < datetime.now(credentials.tz)
+
+    def _get_session(self) -> Session:
+        session = boto3.Session(aws_access_key_id=self.temp_creds_req['access_key'],
+                                aws_secret_access_key=self.temp_creds_req['secret_key'],
+                                aws_session_token=self.temp_creds_req['session_token'],
+                                region_name='us-west-2')
+
+        cookie_path = Path.home() / '.aws' / 'cookies'
+        rio_env = rio.Env(AWSSession(session),
+                          GDAL_DISABLE_READDIR_ON_OPEN='TRUE',
+                          GDAL_HTTP_COOKIEFILE=cookie_path.as_posix(),
+                          GDAL_HTTP_COOKIEJAR=cookie_path.as_posix())
+        rio_env.__enter__()
+        return session
 
 class CMRClient:
     """
@@ -65,17 +76,17 @@ class CMRClient:
     """
 
     def __init__(self, provider='LPCLOUD', project='ECOSTRESS'):
-        self.base_url = "https://cmr.earthdata.nasa.gov/search"
-        self.auth = get_credentials()
+        self.base_url = 'https://cmr.earthdata.nasa.gov'
+        self.search_url = f"{self.base_url}/search"
+        self.access_token = credentials.read_earthdata_token()
         self.provider = provider
         self.project = project
         self.headers = {
-            'Authorization': f'Bearer {self.auth["token"]}',
+            'Authorization': f'Bearer {self.access_token}',
             'Accept': 'application/json'
         }
 
     def get_collections(self, verbose=True):
-        token = self.auth['token']
         url = f'{self.base_url}/{"collections"}'
         response = requests.get(url,
                                 params={
@@ -121,7 +132,6 @@ class CMRClient:
           response returned by the CMR API.
         """
         url = f'{self.base_url}/{"granules"}'
-        token = self.auth['token']
         params = {
             'concept_id': collection_id,
             'temporal': date_range,
@@ -182,7 +192,6 @@ class Granule:
     _dt_parser = '%Y-%m-%dT%H:%M:%S.%fZ'
 
     def __init__(self, granule, verbose=True):
-        self.auth = get_credentials()
         self.id = granule['id']
         self.dataset_id = granule['dataset_id']
         self.data_center = granule['data_center']
@@ -236,19 +245,22 @@ class Granule:
                 urllib.request.urlretrieve(url, out_file)
             else:
                 print(f"{file_name} already exists in {out_dir}")
-    def get_xarray(self, data_sets=None, verbose=True):
+    def get_xarray(self, data_sets=None, session=None, verbose=True):
         # Return an xarray dataset from the file in self.https list
         # https://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html
+        if session is None:
+            session = DaacReadSession()
+        else:
+            session()
         if data_sets is None:
             data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
-        set_rio_environment()
-        #s3 = s3fs.S3FileSystem(anon=False, token=self.auth['token'])
-        #fileset = [s3.open(file) for file in self.s3]
         if verbose:
             print(f'Opening {self.id} with data sets: {data_sets}')
         da = {ds: rioxarray.open_rasterio(ds_s3, chunks='auto') for ds, ds_s3 in zip(data_sets, self.s3)}
-        da
-        return xr.open_mfdataset(fileset, combine='by_coords', data_vars=data_sets)
+        return xr.Dataset(da)
+        #return xr.open_mfdataset(fileset, combine='by_coords', data_vars=data_sets)
+        #s3 = s3fs.S3FileSystem(anon=False, token=self.auth['token'])
+        #fileset = [s3.open(file) for file in self.s3]
 
 class Links:
     # class to handle links in the granule json object
@@ -304,6 +316,7 @@ class Earthdata:
 
     def login(self):
         # Set up the login request
+
         login_url = 'https://urs.earthdata.nasa.gov/login'
         login_data = {'username': self.username, 'password': self.password}
 
