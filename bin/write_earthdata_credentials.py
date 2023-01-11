@@ -23,7 +23,7 @@ def main():
     if not credentials.check_netrc():
         assert credentials.write_netrc()
     assert credentials.write_earthdata_credentials()
-    assert credentials.write_s3_credentials()
+    #assert credentials.write_s3_credentials()
     print('Done!')
 
 if __name__ == '__main__':

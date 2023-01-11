@@ -51,7 +51,7 @@ class DaacReadSession:
 
     def is_expired(self) -> bool:
         # check if the session is expired
-        return self.expiration_date < datetime.now(credentials.tz)
+        return self.expiration_date < datetime.now(credentials._tz)
 
     def _get_session(self) -> Session:
         session = boto3.Session(aws_access_key_id=self.temp_creds_req['access_key'],
@@ -245,18 +245,21 @@ class Granule:
                 urllib.request.urlretrieve(url, out_file)
             else:
                 print(f"{file_name} already exists in {out_dir}")
-    def get_xarray(self, data_sets=None, session=None, verbose=True):
-        # Return an xarray dataset from the file in self.https list
-        # https://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html
-        if session is None:
-            session = DaacReadSession()
+    def get_xarray(self, data_sets=None, aws=True, session=None, verbose=True):
+        if aws:
+            # Return an xarray dataset from the file in self.https list
+            # https://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html
+            if session is None:
+                session = DaacReadSession()
+            else:
+                session()
+            if data_sets is None:
+                data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
+            if verbose:
+                print(f'Opening {self.id} with data sets: {data_sets}')
+            da = {ds: rioxarray.open_rasterio(ds_s3, chunks='auto') for ds, ds_s3 in zip(data_sets, self.s3)}
         else:
-            session()
-        if data_sets is None:
-            data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
-        if verbose:
-            print(f'Opening {self.id} with data sets: {data_sets}')
-        da = {ds: rioxarray.open_rasterio(ds_s3, chunks='auto') for ds, ds_s3 in zip(data_sets, self.s3)}
+            local
         return xr.Dataset(da)
         #return xr.open_mfdataset(fileset, combine='by_coords', data_vars=data_sets)
         #s3 = s3fs.S3FileSystem(anon=False, token=self.auth['token'])

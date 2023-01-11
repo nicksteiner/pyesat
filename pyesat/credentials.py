@@ -13,8 +13,8 @@ import requests
 
 # all credential is stored in this file, keep secure, will be used by other scripts
 config_file = Path(__file__).parent / 'config.ini'  # same directory as the source
-global tz
-tz = pytz.timezone("America/New_York")
+
+_tz = pytz.timezone("America/New_York")
 
 _remote_hostname = "urs.earthdata.nasa.gov"  # Earthdata URL to call for authentication
 
@@ -49,7 +49,7 @@ def get_earthdata_login() -> Tuple[str, str]:
         # check if the remote_hostname is in the netrc file
         assert _remote_hostname in netrc_file.hosts
     # write a more clear exception clause
-    except netrc.NetrcParseError:
+    except:
         print('Netrc file not found will create from prompt ....')
         assert write_netrc()
         netrc_file = netrc.netrc()
@@ -168,7 +168,7 @@ def get_credentials() -> configparser.ConfigParser:
     else:
         try:
             config_parser.read(config_file.as_posix())
-        except configparser.MissingSectionHeaderError:
+        except:
             print('Configuration file is not in the correct format')
             print(config_info_str)
             sys.exit(1)
@@ -206,7 +206,7 @@ def get_daac_credentials(daac) -> Dict:
         expiration_date_str = config_parser.get(daac, 'expiration_date')
         # write datetime parser for '2023-01-11 19:13:22+00:00' format
         expiration_date = datetime.datetime.strptime(expiration_date_str, "%Y-%m-%d %H:%M:%S%z")
-        if expiration_date < datetime.datetime.now(tz):
+        if expiration_date < datetime.datetime.now(_tz):
             update_daac_credentials(daac, config_parser)
     return dict(config_parser[daac])
 
@@ -219,14 +219,13 @@ def check_earthdata_credentials() -> bool:
     try:
         assert config_parser.has_option(_remote_hostname, 'access_token')
         assert config_parser.has_option(_remote_hostname, 'expiration_date')
-    except Exception('Missing tokens') as e:
-        print(e)
+    except:
         check_ = False
     # check if the token is still valid
     expiration_date_str = config_parser.get(_remote_hostname, 'expiration_date')
     expiration_date = datetime.datetime.strptime(expiration_date_str, "%m/%d/%Y")
     try:
-        assert expiration_date > datetime.datetime.now(tz)
+        assert expiration_date > datetime.datetime.now()
     except:
         check_ = False
     return check_
@@ -242,13 +241,7 @@ def read_earthdata_token() -> str:
     """
     try:
         assert check_earthdata_credentials()
-    except AssertionError:
+    except:
         print('Missing Credentials .. will need to update')
         write_earthdata_credentials()
     return str(get_credentials()[_remote_hostname]['access_token'])
-
-
-def write_s3_credentials() -> bool:
-    for daac in _s3_cred_endpoint:
-        get_daac_credentials(daac)
-    return True
