@@ -3,6 +3,8 @@
 import os
 import sys
 import json
+from netrc import netrc
+
 import configparser
 import pathlib
 import datetime
@@ -49,6 +51,16 @@ def write_config_fromPrompt():
     config_state[remoteHostName]['password'] = password
 
     write_config(config_state)
+    # check if entry is in netrc file and write if not
+    try:
+        netrc_file = netrc()
+        netrc_file.authenticators(remoteHostName)
+    except:
+        # write entry into netrc file
+        netrc_file = netrc()
+        netrc_file.addauth(remoteHostName, username, password, None)
+
+
 
 
 def get_config(config_parser):

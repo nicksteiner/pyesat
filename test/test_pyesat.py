@@ -30,6 +30,13 @@ def test_get_s3():
     for granule in granules:
         print(granule.s3)
 
+def test_get_xarray():
+    # Tests the Granule.get_xarray() function to ensure that it correctly converts an image to an xarray object.
+    import pyesat.earthdata
+    client = pyesat.earthdata.CMRClient()
+    granules = client.search_granules(_test_data['bbox'], _test_data['date_range'])
+    granules[0].get_xarray()
+    pass
 
 
 def test_earthdata_login(): 

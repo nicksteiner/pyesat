@@ -1,20 +1,25 @@
 import os
 import sys
 import json
+import boto3
 import pprint
 from typing import List, Dict
 from pathlib import Path
 import urllib
+import s3fs
 import netrc
+import rioxarray
+from rasterio.session import AWSSession
 from datetime import datetime
 import requests
+import xarray as xr
+import rasterio as rio
 import configparser
 from requests import Session
 
 # Generate a NASA Earthdata Login Token
 
 config_file = Path(__file__).parent / 'config.ini'  # same directory as the the source
-
 remote_hostname = "urs.earthdata.nasa.gov"  # Earthdata URL to call for authentication
 
 
@@ -26,6 +31,29 @@ def get_credentials() -> Dict:
     except:
         raise Exception('NASA Earthdata credentials not found, please run: write_earthdata_credentials.py')
     return dict(config_parser[remote_hostname])
+
+def get_temp_credentials(provider):
+    """Generate temporary NASA Earthdata credentials for a given provider"""
+    s3_cred_endpoint = {
+        'podaac': 'https://archive.podaac.earthdata.nasa.gov/s3credentials',
+        'gesdisc': 'https://data.gesdisc.earthdata.nasa.gov/s3credentials',
+        'lpdaac': 'https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials',
+        'ornldaac': 'https://data.ornldaac.earthdata.nasa.gov/s3credentials',
+        'ghrcdaac': 'https://data.ghrc.earthdata.nasa.gov/s3credentials'
+    }
+    return requests.get(s3_cred_endpoint[provider], auth=**get_credentials()).json()
+def set_rio_environment():
+    temp_creds_req = get_temp_credentials('lpdaac')
+    session = boto3.Session(aws_access_key_id=temp_creds_req['accessKeyId'],
+                            aws_secret_access_key=temp_creds_req['secretAccessKey'],
+                            aws_session_token=temp_creds_req['sessionToken'],
+                            region_name='us-west-2')
+    rio_env = rio.Env(AWSSession(session),
+                      GDAL_DISABLE_READDIR_ON_OPEN='TRUE',
+                      GDAL_HTTP_COOKIEFILE=os.path.expanduser('~/cookies.txt'),
+                      GDAL_HTTP_COOKIEJAR=os.path.expanduser('~/cookies.txt'))
+    rio_env.__enter__()
+    #return rio_env
 
 
 class CMRClient:
@@ -127,6 +155,7 @@ class CMRClient:
 
         return granules_
 class Granule:
+
     # Class to contain information from the CRM entry json object.
 
     """
@@ -153,6 +182,7 @@ class Granule:
     _dt_parser = '%Y-%m-%dT%H:%M:%S.%fZ'
 
     def __init__(self, granule, verbose=True):
+        self.auth = get_credentials()
         self.id = granule['id']
         self.dataset_id = granule['dataset_id']
         self.data_center = granule['data_center']
@@ -206,6 +236,19 @@ class Granule:
                 urllib.request.urlretrieve(url, out_file)
             else:
                 print(f"{file_name} already exists in {out_dir}")
+    def get_xarray(self, data_sets=None, verbose=True):
+        # Return an xarray dataset from the file in self.https list
+        # https://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html
+        if data_sets is None:
+            data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
+        set_rio_environment()
+        #s3 = s3fs.S3FileSystem(anon=False, token=self.auth['token'])
+        #fileset = [s3.open(file) for file in self.s3]
+        if verbose:
+            print(f'Opening {self.id} with data sets: {data_sets}')
+        da = {ds: rioxarray.open_rasterio(ds_s3, chunks='auto') for ds, ds_s3 in zip(data_sets, self.s3)}
+        da
+        return xr.open_mfdataset(fileset, combine='by_coords', data_vars=data_sets)
 
 class Links:
     # class to handle links in the granule json object
