@@ -1,8 +1,14 @@
 import os
+import pathlib
 import sys
 import json
 import concurrent.futures
 import dask
+import sqlalchemy
+import sqlalchemy.orm
+from sqlalchemy import Column, Integer, String, DateTime, Float, Boolean, ForeignKey, Table, MetaData, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+
 import dask.array as da
 from dask.diagnostics import ProgressBar
 
@@ -22,7 +28,101 @@ from requests import Session
 from . import credentials
 # Generate a NASA Earthdata Login Token
 
+# write a sqlalchemy engine for ORM access to the database
 
+db_path = Path.home() / '.pyesat' / 'pyesat.db'
+metadata = MetaData()
+base = declarative_base(metadata=metadata)
+
+def get_engine(db_path: pathlib.Path) -> sqlalchemy.engine:
+    # get the sqlalchemy engine
+    if not db_path.exists():
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.touch()
+        db_path.chmod(0o600)
+    engine = sqlalchemy.create_engine(db_path)
+    return engine
+
+# create sqlalchemy ORM classes for the database tables
+# this is a one-time operation
+# the database is created if it doesn't exist
+# the tables are created if they don't exist
+# the ORM classes are created if they don't exist
+# this function is called by the pyesat module
+def create_orm_classes(db_path: pathlib.Path=db_path, metadata: sqlalchemy.MetaData=metadata) -> None:
+    # get the sqlalchemy engine
+    engine = get_engine(db_path)
+    # create the tables
+    metadata.create_all(engine)
+    # create the ORM classes
+    sqlalchemy.orm.configure_mappers()
+
+# create a sqlalchemy ORM session
+# this is called by the pyesat module
+def get_session(db_path: pathlib.Path) -> sqlalchemy.orm.session.Session:
+    # get the sqlalchemy engine
+    engine = get_engine(db_path)
+    # create the ORM session
+    session = sqlalchemy.orm.sessionmaker(bind=engine)()
+    return session
+
+# create a sqlalchemy ORM session that can be used with a context manager
+class SessionContextManager():
+    def __init__(self, db_path: pathlib.Path=db_path):
+        self.db_path = db_path
+        self.session = None
+    def __enter__(self):
+        self.session = get_session(db_path=self.db_path)
+        return self.session
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        self.session.close()
+        self.session = None
+
+class EarthdataCredentials(base):
+    __tablename__ = 'earthdata_credentials'
+    id = Column(Integer, primary_key=True)
+    username = Column(String)
+    password = Column(String)
+    daac = Column(String)
+    token = Column(String)
+    expires = Column(DateTime)
+    created = Column(DateTime, default=datetime.utcnow)
+    updated = Column(DateTime, onupdate=datetime.utcnow)
+    def __repr__(self):
+        return
+# this is the ORM class for the collection table
+# this class is created by the pyesat module
+class Collection(base):
+    __tablename__ = 'collection'
+    id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
+    short_name = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    version = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    daac = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    url = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    last_update = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+    last_update_attempt = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+    last_update_success = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+    last_update_error = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+    last_update_status = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+    # version added to zarr file
+    zarr = Column(Boolean, default=False)
+    # this is a sqlalchemy relationship
+    # it is not a database column
+    # it is used to access the granules
+    granules = sqlalchemy.orm.relationship('Granule', backref='collection')
+    # this is a sqlalchemy relationship
+    # it is not a database column
+    # it is used to access the variables
+    variables = sqlalchemy.orm.relationship('Variable', backref='collection')
+
+    def __init__(self, short_name: str, version: str, daac: str, url: str):
+        self.short_name = short_name
+        self.version = version
+        self.daac = daac
+    def update(self, session: sqlalchemy.orm.session.Session) -> None:
+        # update the collection
+        # get the collection metadata
+        response
 def set_rio_environment(daac: str='lpdaac') -> bool:
     temp_creds_req = credentials.get_daac_credentials(daac)
     session = boto3.Session(aws_access_key_id=temp_creds_req['access_key'],
@@ -174,7 +274,32 @@ class CMRClient:
             granules_.append(Granule(granule))
 
         return granules_
-class Granule:
+class Granule(base):
+    __tablename__ = 'granules'
+    _id = Column(String, primary_key=True)
+    _data_center = Column(String)
+    _dataset_id = Column(String)
+    _title = Column(String)
+    _version_id = Column(String)
+    _revision_id = Column(String)
+    _collection_concept_id = Column(String)
+    _collection_data_center = Column(String)
+    _collection_short_name = Column(String)
+    _collection_version_id = Column(String)
+    _collection_revision_id = Column(String)
+    _start_date = Column(DateTime)
+    _end_date = Column(DateTime)
+    _insert_time = Column(DateTime)
+    _update_time = Column(DateTime)
+    _links = Column(String)
+    _s3 = Column(String)
+    _https = Column(String)
+    _bbox = Column(String)
+    _granule_size = Column(Float)
+    _time_to_first_byte = Column(Float)
+
+
+    # write ORM for Granule class using sqlalchemy
 
     # Class to contain information from the CRM entry json object.
 
@@ -202,6 +327,14 @@ class Granule:
     _dt_parser = '%Y-%m-%dT%H:%M:%S.%fZ'
 
     def __init__(self, granule, keep_xarray=False, verbose=True):
+        """
+        Initialize the Granule object. This is a wrapper around the json object returned by the CMR. It contains the
+        functions to download the granule and extract the data to a xarray object and write to zarr.
+        Args:
+            granule:
+            keep_xarray:
+            verbose:
+        """
         self.id = granule['id']
         self.dataset_id = granule['dataset_id']
         self.data_center = granule['data_center']
@@ -289,7 +422,7 @@ class Granule:
         data_set = data_set.set_coords('time')
         data_set = data_set.expand_dims(dim='time', axis=0)
         # drop the band and spatial_ref coordinate variables
-        data_set = data_set.drop_vars(['spatial_ref', 'band'])
+        #data_set = data_set.drop_vars(['spatial_ref', 'band']) # may cause issues with other data sets
         # add the granule metadata as attributes to the data set
         data_set.attrs['id'] = self.id
         data_set.attrs['dataset_id'] = self.dataset_id
