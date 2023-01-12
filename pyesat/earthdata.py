@@ -255,28 +255,12 @@ class Granule:
                 urllib.request.urlretrieve(url, out_file)
             else:
                 print(f"{file_name} already exists in {out_dir}")
-    def get_xarray(self, data_sets=None, aws=True, session=None, verbose=True):
+
+    def get_xarray(self, data_sets=None, aws=True, verbose=True):
         # Return an xarray dataset from the file in self.https list
         # https://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html
         # https://xarray.pydata.org/en/stable/io.html#reading-from-amazon-s3
 
-        # this needs to be set with valid http cookies even if not on aws
-        with DaacReadSession() as session:
-            if aws:
-                if data_sets is None:
-                    data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
-                if verbose:
-                    print(f'Opening S3 {self.id} with data sets: {data_sets}')
-                da = {ds: rioxarray.open_rasterio(ds_s3, chunks='auto') for ds, ds_s3 in zip(data_sets, self.s3)}
-            else: # use https
-                if data_sets is None:
-                    data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
-                if verbose:
-                    print(f'Opening HTTPS {self.id} with data sets: {data_sets}')
-                da = {ds: rioxarray.open_rasterio(ds_https, chunks='auto') for ds, ds_https in zip(data_sets, self.https)}
-        return xr.Dataset(da)
-
-    def get_xarray_dask(self, data_sets=None, aws=True, verbose=True):
         with DaacReadSession() as session:
             if aws:
                 if data_sets is None:
