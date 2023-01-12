@@ -2,8 +2,11 @@ import os
 import sys
 import json
 import concurrent.futures
+import dask
+import dask.array as da
+from dask.diagnostics import ProgressBar
 
-import tqdm
+from tqdm import tqdm
 import boto3
 from typing import List, Dict
 from pathlib import Path
@@ -270,21 +273,30 @@ class Granule:
                     data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
                 if verbose:
                     print(f'Opening HTTPS {self.id} with data sets: {data_sets}')
-                # read from https using concurrent library (little faster than just opening each file using rioxarray)
-                #def read_cog(url):
-                #    return rioxarray.open_rasterio(url, chunks='auto')
-                #data_values = []
-                #with concurrent.futures.ThreadPoolExecutor() as executor:
-                #    with tqdm.tqdm(total=len(self.https), desc='Reading TIFF files') as pbar:
-                #        future_data = [executor.submit(read_cog, url) for url in self.https]
-                #        for f in concurrent.futures.as_completed(future_data):
-                #            data_values.append(f.result())
-                #            pbar.update()
-                #da = {ds: ds_https for ds, ds_https in zip(data_sets, data_values)}
                 da = {ds: rioxarray.open_rasterio(ds_https, chunks='auto') for ds, ds_https in zip(data_sets, self.https)}
-
         return xr.Dataset(da)
 
+    def get_xarray_dask(self, data_sets=None, aws=True, verbose=True):
+        with DaacReadSession() as session:
+            if aws:
+                if data_sets is None:
+                    data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
+                if verbose:
+                    print(f'Opening S3 {self.id} with data sets: {data_sets}')
+                da = [dask.delayed(rioxarray.open_rasterio)(ds_s3, chunks='auto') for ds, ds_s3 in
+                      tqdm(zip(data_sets, self.s3))]
+            else:  # use https
+                if data_sets is None:
+                    data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.https]
+                if verbose:
+                    print(f'Opening HTTPS {self.id} with data sets: {data_sets}')
+                da = [dask.delayed(rioxarray.open_rasterio)(ds_https, chunks='auto') for ds, ds_https in
+                      tqdm(zip(data_sets, self.https))]
+            with ProgressBar():
+                ds = dask.compute(*da)
+            ds = xr.Dataset(data_vars={ds_name: ds for ds_name, ds in zip(data_sets, ds)})
+            ds = xr.Dataset(ds)
+        return ds
 
 class Links:
     # class to handle links in the granule json object
