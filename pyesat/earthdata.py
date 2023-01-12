@@ -201,7 +201,7 @@ class Granule:
     """
     _dt_parser = '%Y-%m-%dT%H:%M:%S.%fZ'
 
-    def __init__(self, granule, verbose=True):
+    def __init__(self, granule, keep_xarray=False, verbose=True):
         self.id = granule['id']
         self.dataset_id = granule['dataset_id']
         self.data_center = granule['data_center']
@@ -227,6 +227,8 @@ class Granule:
         self.links = Links(granule['links'])
         self.s3 = self.links.get_s3()
         self.https = self.links.get_https()
+        self.keep_xarray = keep_xarray
+        self.xarray = None
         if verbose:
             print(f'Granule: {self.id}: {self.dataset_id}: {self.time_start} - {self.time_end}')
 
@@ -256,31 +258,73 @@ class Granule:
             else:
                 print(f"{file_name} already exists in {out_dir}")
 
-    def get_xarray(self, data_sets=None, aws=True, verbose=True):
+    def get_xarray(self, data_sets=None, aws=True, verbose=True) -> xr.Dataset:
         # Return an xarray dataset from the file in self.https list
         # https://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html
         # https://xarray.pydata.org/en/stable/io.html#reading-from-amazon-s3
 
         with DaacReadSession() as session:
             if aws:
-                if data_sets is None:
-                    data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
-                if verbose:
-                    print(f'Opening S3 {self.id} with data sets: {data_sets}')
-                da = [dask.delayed(rioxarray.open_rasterio)(ds_s3, chunks='auto') for ds, ds_s3 in
-                      tqdm(zip(data_sets, self.s3))]
-            else:  # use https
-                if data_sets is None:
-                    data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.https]
-                if verbose:
-                    print(f'Opening HTTPS {self.id} with data sets: {data_sets}')
-                da = [dask.delayed(rioxarray.open_rasterio)(ds_https, chunks='auto') for ds, ds_https in
-                      tqdm(zip(data_sets, self.https))]
+                links = self.s3
+            else:
+                links = self.https
+            if data_sets is None:
+                data_sets = [f.split('_')[-1].replace('.tif', '') for f in links]
+            if verbose:
+                data_sets_ = [f.split('_')[-1].replace('.tif', '') for f in links]
+                data_sets_ = {ds: url for ds, url in zip(data_sets_, links)}
+                data_urls = [data_sets_[ds] for ds in data_sets]
+            loc_ = {True: 'S3', False: 'HTTPS'}[aws]
+            if verbose:
+                print(f'Opening {loc_} {self.id} with data sets: {data_sets}')
+            data_array = {ds:dask.delayed(rioxarray.open_rasterio)(ds_url, chunks='auto') for ds, ds_url in
+                          zip(data_sets, data_urls)}
             with ProgressBar():
-                ds = dask.compute(*da)
-            ds = xr.Dataset(data_vars={ds_name: ds for ds_name, ds in zip(data_sets, ds)})
-            ds = xr.Dataset(ds)
-        return ds
+                data_set = xr.Dataset({ds:d.compute().squeeze() for ds, d in data_array.items()})
+        # add time coordinate to data set and set as dimension coordinate
+
+        print(f'Finished opening {self.id}')
+        data_set['time'] = self.time_start
+        # add the time coordinate as a dimension coordinate
+        data_set = data_set.set_coords('time')
+        data_set = data_set.expand_dims(dim='time', axis=0)
+        # drop the band and spatial_ref coordinate variables
+        data_set = data_set.drop_vars(['spatial_ref', 'band'])
+        # add the granule metadata as attributes to the data set
+        data_set.attrs['id'] = self.id
+        data_set.attrs['dataset_id'] = self.dataset_id
+        data_set.attrs['data_center'] = self.data_center
+        data_set.attrs['time_start'] = self.time_start
+        data_set.attrs['time_end'] = self.time_end
+        data_set.attrs['collection_concept_id'] = self.collection_concept_id
+        data_set.attrs['producer_granule_id'] = self.producer_granule_id
+        data_set.attrs['browse_flag'] = self.browse_flag
+        data_set.attrs['online_access_flag'] = self.online_access_flag
+        data_set.attrs['original_format'] = self.original_format
+        data_set.attrs['coordinate_system'] = self.coordinate_system
+        data_set.attrs['day_night_flag'] = self.day_night_flag
+        data_set.attrs['title'] = self.title
+        data_set.attrs['updated'] = self.updated
+        data_set.attrs['granule_size'] = self.granule_size
+        data_set.attrs['start_orbit_number'] = self.start_orbit_number
+        data_set.attrs['stop_orbit_number'] = self.stop_orbit_number
+        data_set.attrs['boxes'] = self.boxes
+        data_set.attrs['links'] = self.links
+        data_set.attrs['s3'] = self.s3
+        data_set.attrs['https'] = self.https
+        # the most pythonic way to retain the xarray dataset in the object if you want to use it later
+        if self.keep_xarray:
+            self.xarray = data_set
+        return data_set
+
+    def write_to_zarr(self, path):
+        # check if there is an xarray dataset in the object if not
+        # load it make sure to append to other data that may be in the zarr store
+        if self.xarray is None:
+            self.get_xarray()
+        # write the xarray dataset to a zarr file in the specified path
+        self.xarray.to_zarr(path, mode='a')
+        print(f'Finished writing {self.id} to {path}')
 
 class Links:
     # class to handle links in the granule json object

@@ -24,6 +24,7 @@ setup(
         'shapely',
         'matplotlib',
         'rasterio',
+        'rioxarray',
         'rasterio'
     ],
     tests_require=['pytest'],
