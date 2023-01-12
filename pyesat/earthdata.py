@@ -1,13 +1,13 @@
 import os
 import sys
 import json
+import concurrent.futures
+
+import tqdm
 import boto3
-import pprint
 from typing import List, Dict
 from pathlib import Path
 import urllib
-import s3fs
-import netrc
 import rioxarray
 from rasterio.session import AWSSession
 from datetime import datetime
@@ -35,22 +35,27 @@ def set_rio_environment(daac: str='lpdaac') -> bool:
     #return rio_env
     return True
 
+
 class DaacReadSession:
-    # class to contain the session for a given DAAC using credentials
     def __init__(self, daac: str='lpdaac'):
         self.daac = daac
         self.temp_creds_req = credentials.get_daac_credentials(self.daac)
-        self.session = self._get_session()
+        self.session = None
         exp_date = self.temp_creds_req['expiration_date']
         self.expiration_date = datetime.strptime(exp_date, "%Y-%m-%d %H:%M:%S%z")
 
-    def __call__(self, *args, **kwargs):
-        # reset the session if it is expired
-        if self.is_expired():
+    def __enter__(self):
+        if not self.is_expired():
             self.session = self._get_session()
+        else:
+            self.temp_creds_req = credentials.get_daac_credentials(self.daac)
+            self.session = self._get_session()
+        return self.session
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.session.__exit__(exc_type, exc_val, exc_tb)
 
     def is_expired(self) -> bool:
-        # check if the session is expired
         return self.expiration_date < datetime.now(credentials._tz)
 
     def _get_session(self) -> Session:
@@ -65,7 +70,9 @@ class DaacReadSession:
                           GDAL_HTTP_COOKIEFILE=cookie_path.as_posix(),
                           GDAL_HTTP_COOKIEJAR=cookie_path.as_posix())
         rio_env.__enter__()
-        return session
+        return rio_env
+
+
 
 class CMRClient:
     """
@@ -246,24 +253,38 @@ class Granule:
             else:
                 print(f"{file_name} already exists in {out_dir}")
     def get_xarray(self, data_sets=None, aws=True, session=None, verbose=True):
-        if aws:
-            # Return an xarray dataset from the file in self.https list
-            # https://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html
-            if session is None:
-                session = DaacReadSession()
-            else:
-                session()
-            if data_sets is None:
-                data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
-            if verbose:
-                print(f'Opening {self.id} with data sets: {data_sets}')
-            da = {ds: rioxarray.open_rasterio(ds_s3, chunks='auto') for ds, ds_s3 in zip(data_sets, self.s3)}
-        else:
-            local
+        # Return an xarray dataset from the file in self.https list
+        # https://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html
+        # https://xarray.pydata.org/en/stable/io.html#reading-from-amazon-s3
+
+        # this needs to be set with valid http cookies even if not on aws
+        with DaacReadSession() as session:
+            if aws:
+                if data_sets is None:
+                    data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
+                if verbose:
+                    print(f'Opening S3 {self.id} with data sets: {data_sets}')
+                da = {ds: rioxarray.open_rasterio(ds_s3, chunks='auto') for ds, ds_s3 in zip(data_sets, self.s3)}
+            else: # use https
+                if data_sets is None:
+                    data_sets = [f.split('_')[-1].replace('.tif', '') for f in self.s3]
+                if verbose:
+                    print(f'Opening HTTPS {self.id} with data sets: {data_sets}')
+                # read from https using concurrent library (little faster than just opening each file using rioxarray)
+                #def read_cog(url):
+                #    return rioxarray.open_rasterio(url, chunks='auto')
+                #data_values = []
+                #with concurrent.futures.ThreadPoolExecutor() as executor:
+                #    with tqdm.tqdm(total=len(self.https), desc='Reading TIFF files') as pbar:
+                #        future_data = [executor.submit(read_cog, url) for url in self.https]
+                #        for f in concurrent.futures.as_completed(future_data):
+                #            data_values.append(f.result())
+                #            pbar.update()
+                #da = {ds: ds_https for ds, ds_https in zip(data_sets, data_values)}
+                da = {ds: rioxarray.open_rasterio(ds_https, chunks='auto') for ds, ds_https in zip(data_sets, self.https)}
+
         return xr.Dataset(da)
-        #return xr.open_mfdataset(fileset, combine='by_coords', data_vars=data_sets)
-        #s3 = s3fs.S3FileSystem(anon=False, token=self.auth['token'])
-        #fileset = [s3.open(file) for file in self.s3]
+
 
 class Links:
     # class to handle links in the granule json object
@@ -311,53 +332,3 @@ class CmrSearch:
         return parsed_results
 
 
-class Earthdata:
-    def __init__(self, username, password):
-        self.username = username
-        self.password = password
-        self.session = Session()
-
-    def login(self):
-        # Set up the login request
-
-        login_url = 'https://urs.earthdata.nasa.gov/login'
-        login_data = {'username': self.username, 'password': self.password}
-
-        # Send the login request
-        response = self.session.post(login_url, data=login_data)
-
-        # Check the response status code
-        if response.status_code != 200:
-            raise Exception('Failed to log in: {}'.format(response.status_code))
-
-    def search(self, dataset, start_date, end_date):
-        # Set up the search request
-        search_url = 'https://search.earthdata.nasa.gov/search'
-        search_params = {
-            'dataset': dataset,
-            'temporal': start_date + 'Z' + end_date + 'Z',
-            'format': 'json'
-        }
-
-        # Send the search request
-        response = self.session.get(search_url, params=search_params)
-
-        # Check the response status code
-        if response.status_code != 200:
-            raise Exception('Failed to search: {}'.format(response.status_code))
-
-        # Parse and return the search results
-        return response.json()['feed']['entry']
-
-    def download(self, url, output_dir):
-        # Send the download request
-        response = self.session.get(url)
-
-        # Check the response status code
-        if response.status_code != 200:
-            raise Exception('Failed to download: {}'.format(response.status_code))
-
-        # Save the image to the output directory
-        filename = url.split('/')[-1]
-        with open(os.path.join(output_dir, filename), 'wb') as f:
-            f.write(response.content)

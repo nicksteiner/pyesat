@@ -44,7 +44,7 @@ def test_get_xarray():
     import pyesat.earthdata
     client = pyesat.earthdata.CMRClient()
     granules = client.search_granules(_test_data['bbox'], _test_data['date_range'])
-    granules[0].get_xarray()
+    granules[0].get_xarray(aws=False)
     pass
 
 
