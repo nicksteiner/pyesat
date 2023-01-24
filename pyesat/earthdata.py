@@ -274,6 +274,8 @@ class CMRClient:
             granules_.append(Granule(granule))
 
         return granules_
+
+
 class Granule(base):
     __tablename__ = 'granules'
     _id = Column(String, primary_key=True)
