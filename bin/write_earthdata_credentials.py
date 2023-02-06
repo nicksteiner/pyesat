@@ -3,6 +3,8 @@
 import os
 import sys
 import json
+from netrc import netrc
+
 import configparser
 import pathlib
 import datetime
@@ -44,60 +46,13 @@ def write_config_fromPrompt():
         config_state[remoteHostName]['password'] = password
         write_config(config_state)
 
-    
-def get_config(config_parser):
-    return config_parser.read_file(open(config_file, 'r'))
 
 def main():
-    config_parser = configparser.ConfigParser()
-    # Determine if netrc file exists, and if so, if it includes NASA Earthdata username Credentials
-    try:
-        get_config(config_parser)
-    except :
-        print('File not found will create from prompt ....')
-        write_config_fromPrompt()
-        get_config(config_parser)
-
-    try:
-        assert remoteHostName in config_parser
-        assert 'username' in config_parser['urs.earthdata.nasa.gov']
-        assert 'password' in config_parser['urs.earthdata.nasa.gov']
-    except :
-        write_config_fromPrompt()
-        get_config(config_parser)
-
-    auth = (config_parser[remoteHostName]['username'], config_parser[remoteHostName]['password'])
-    req_ = requests.get(_edl_token_urls['list_token'], auth=auth)
-    if req_.status_code == 401:
-        error_ = json.loads(req_.text)
-        raise Exception(f"{error_['error']}:{error_['error_description']}")
-    
-    tokens_ = req_.json()
-
-    if not tokens_:
-        generate_token_req = requests.post(_edl_token_urls['generate_token'], **auth)
-        token = generate_token_req.json()
-    else:
-        # check expired
-        dates_ = [datetime.datetime.strptime(t['expiration_date'], "%m/%d/%Y") for t in tokens_]
-
-        token = None
-        for (d_, t_) in sorted(zip(dates_, tokens_)):
-            if d_ > datetime.datetime.now():
-                token = t_
-            else:
-                revoke_token = requests.post(f"{_edl_token_urls['revoke_token']}?", data= {'token': t_}, auth=auth)
-
-        if not token:
-            generate_token_req = requests.post(_edl_token_urls['generate_token'], auth=auth)
-            token = generate_token_req.json()
-    
-    # write token to config
-    config_parser[remoteHostName]['token'] = token['access_token']
-    write_config(config_parser)
-    print(f"Config file written to {os.path.abspath(config_file.as_posix())}")
-
-
+    if not credentials.check_netrc():
+        assert credentials.write_netrc()
+    assert credentials.write_earthdata_credentials()
+    #assert credentials.write_s3_credentials()
+    print('Done!')
 
 if __name__ == '__main__':
     main()
