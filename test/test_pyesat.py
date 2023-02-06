@@ -29,7 +29,6 @@ def test_cmr_granules():
 
 def test_earthdata_login(): 
     # Tests the Earthdata.login() method to ensure that it correctly logs the user in to the Earthdata Cloud.
-
     pass
 
 def test_search(): 

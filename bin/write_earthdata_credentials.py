@@ -11,7 +11,6 @@ from getpass import getpass
 import requests
 
 sys.path.append('..')  # NOTE: for debugging, should change when installed
-
 import pyesat.pyesat
 
 config_file = pathlib.Path(pyesat.pyesat.__file__).parent / 'config.ini' 
@@ -38,13 +37,11 @@ def write_config(config_state):
 
 def write_config_fromPrompt():
         config_state = configparser.ConfigParser()
-
         username = input("Enter NASA Earthdata username Username ")
         password = getpass.getpass("Enter NASA Earthdata username Password: ")
         config_state[remoteHostName] = {}
         config_state[remoteHostName]['username'] = username
         config_state[remoteHostName]['password'] = password
-        
         write_config(config_state)
 
     
