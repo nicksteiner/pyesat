@@ -29,26 +29,23 @@ from . import credentials
 # Generate a NASA Earthdata Login Token
 
 # write a sqlalchemy engine for ORM access to the database
-
+_engine_type = 'sqlite'
 db_path = Path.home() / '.pyesat' / 'pyesat.db'
 metadata = MetaData()
 base = declarative_base(metadata=metadata)
-
+# get the sqlalchemy engine
 def get_engine(db_path: pathlib.Path) -> sqlalchemy.engine:
     # get the sqlalchemy engine
     if not db_path.exists():
         db_path.parent.mkdir(parents=True, exist_ok=True)
         db_path.touch()
         db_path.chmod(0o600)
-    engine = sqlalchemy.create_engine(db_path)
+    # convert PosixPath to string in the form of 'sqlite:///path/to/file.db'
+    db_path = f'{_engine_type}:///' + str(db_path)
+    engine = sqlalchemy.create_engine(db_path, echo=False, future=True)
     return engine
 
 # create sqlalchemy ORM classes for the database tables
-# this is a one-time operation
-# the database is created if it doesn't exist
-# the tables are created if they don't exist
-# the ORM classes are created if they don't exist
-# this function is called by the pyesat module
 def create_orm_classes(db_path: pathlib.Path=db_path, metadata: sqlalchemy.MetaData=metadata) -> None:
     # get the sqlalchemy engine
     engine = get_engine(db_path)
@@ -58,7 +55,6 @@ def create_orm_classes(db_path: pathlib.Path=db_path, metadata: sqlalchemy.MetaD
     sqlalchemy.orm.configure_mappers()
 
 # create a sqlalchemy ORM session
-# this is called by the pyesat module
 def get_session(db_path: pathlib.Path) -> sqlalchemy.orm.session.Session:
     # get the sqlalchemy engine
     engine = get_engine(db_path)
@@ -78,6 +74,8 @@ class SessionContextManager():
         self.session.close()
         self.session = None
 
+
+# not implemented yet, not sure if it's necessary
 class EarthdataCredentials(base):
     __tablename__ = 'earthdata_credentials'
     id = Column(Integer, primary_key=True)
@@ -90,10 +88,14 @@ class EarthdataCredentials(base):
     updated = Column(DateTime, onupdate=datetime.utcnow)
     def __repr__(self):
         return
-# this is the ORM class for the collection table
-# this class is created by the pyesat module
+
+
 class Collection(base):
     __tablename__ = 'collection'
+    # create foreign key relationships between 'collection' and 'granules'.
+    # this is a one-time operation
+    # the foreign key relationships are created if they don't exist
+    
     id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
     short_name = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     version = sqlalchemy.Column(sqlalchemy.String, nullable=False)
@@ -110,19 +112,18 @@ class Collection(base):
     # it is not a database column
     # it is used to access the granules
     granules = sqlalchemy.orm.relationship('Granule', backref='collection')
-    # this is a sqlalchemy relationship
-    # it is not a database column
-    # it is used to access the variables
-    variables = sqlalchemy.orm.relationship('Variable', backref='collection')
 
     def __init__(self, short_name: str, version: str, daac: str, url: str):
         self.short_name = short_name
         self.version = version
         self.daac = daac
+
     def update(self, session: sqlalchemy.orm.session.Session) -> None:
         # update the collection
         # get the collection metadata
-        response
+        pass
+
+
 def set_rio_environment(daac: str='lpdaac') -> bool:
     temp_creds_req = credentials.get_daac_credentials(daac)
     session = boto3.Session(aws_access_key_id=temp_creds_req['access_key'],
@@ -174,7 +175,6 @@ class DaacReadSession:
                           GDAL_HTTP_COOKIEJAR=cookie_path.as_posix())
         rio_env.__enter__()
         return rio_env
-
 
 
 class CMRClient:
@@ -299,33 +299,12 @@ class Granule(base):
     _bbox = Column(String)
     _granule_size = Column(Float)
     _time_to_first_byte = Column(Float)
+    # settings to track the download status
+    _local_path = Column(String)
+    _is_downloaded = Column(Boolean)
 
-
-    # write ORM for Granule class using sqlalchemy
-
-    # Class to contain information from the CRM entry json object.
-
-    """
-    write function to put these fields into the Granule object parameters with the same names
-    'producer_granule_id: ECOv002_L2T_LSTE_24972_017_10SGD_20221201T044006_0710_01'
-    'time_start: 2022-12-01T04:40:06.140Z'
-    'updated: 2022-12-10T16:07:24.091Z'
-    ("orbit_calculated_spatial_domains: [{'start_orbit_number': '24972', "
-     "'stop_orbit_number': '24972'}]")
-    ('dataset_id: ECOSTRESS Tiled Land Surface Temperature and Emissivity '
-     'Instantaneous L2 Global 70 m V002')
-    'data_center: LPCLOUD'
-    'title: ECOv002_L2T_LSTE_24972_017_10SGD_20221201T044006_0710_01'
-    'coordinate_system: GEODETIC'
-    'day_night_flag: NIGHT'
-    'time_end: 2022-12-01T04:40:58.110Z'
-    'id: G2562621237-LPCLOUD'
-    'original_format: ECHO10'
-    'granule_size: 3.79172'
-    'browse_flag: True'
-    'collection_concept_id: C2076090826-LPCLOUD'
-    'online_access_flag: True'
-    """
+    # write foreign key to collection table
+    _collection_id = Column(Integer, ForeignKey('collection.id'))
     _dt_parser = '%Y-%m-%dT%H:%M:%S.%fZ'
 
     def __init__(self, granule, keep_xarray=False, verbose=True):
@@ -461,6 +440,7 @@ class Granule(base):
         self.xarray.to_zarr(path, mode='a')
         print(f'Finished writing {self.id} to {path}')
 
+
 class Links:
     # class to handle links in the granule json object
     def __init__(self, links):
@@ -474,6 +454,8 @@ class Links:
 
     def __repr__(self):
         return f'{self.links}'
+
+
 class CmrSearch:
     def __init__(self, api_key: str):
         self.client = CMRClient(api_key=api_key)
@@ -506,4 +488,10 @@ class CmrSearch:
             parsed_results.append(parsed_result)
         return parsed_results
 
+
+# local data path from config.ini using configparser
+config = configparser.ConfigParser()
+data_path = Path(config.get('data_path', 'path'))
+
+# find all of the local files in the data path
 

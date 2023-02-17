@@ -8,7 +8,7 @@ setup(
     url='https://github.com/nicksteiner/pyesat',
     description='A Python library for accessing satellite data',
     packages=['pyesat'],
-    scripts=['bin/write_earthdata_credentials.py'],
+    scripts=['bin/write_earthdata_credentials.py', 'bin/pyesat_db.py'],
     install_requires=[ # add the correct dependencies here
         'requests',
         'boto3',
@@ -25,7 +25,9 @@ setup(
         'matplotlib',
         'rasterio',
         'rioxarray',
-        'rasterio'
+        'rasterio',
+        'sqlalchemy',
+        'tqdm'
     ],
     tests_require=['pytest'],
 )

@@ -8,6 +8,8 @@ _test_data = {}
 _test_data['date_range'] = '2022-12-01T00:00:00Z,2022-12-07T23:59:59Z'
 _test_data['bbox'] = '-120.45264628,34.51050622,-120.40432448,34.53239876'
 _test_data['data_sets'] = ['LST', 'QC', 'cloud', 'err']
+
+
 def test_cmr_collections():
     import pyesat.earthdata
     client = pyesat.earthdata.CMRClient()

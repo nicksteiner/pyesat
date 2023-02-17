@@ -10,7 +10,14 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": true,
+            // add input arguments to the program
+            "args": ["-I", "-O", "-v"],
+            // add path to library to include
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+           
         }
     ]
 }
